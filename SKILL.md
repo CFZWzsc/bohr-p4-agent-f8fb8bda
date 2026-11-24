@@ -71,6 +71,18 @@ description: Use when a task requires decomposing a research question into indep
 - 不访问任何数据库；`retrieval_plan` 中的检索式需要在外部执行后另行提供结果。
 - 不替代系统综述的注册、偏倚评估与 meta 分析。
 
+## Quickstart
+
+在仓库根目录 `bohrium-competition` 执行（PowerShell，实测通过）：
+
+```powershell
+python -B "tracks\deep-research-literature-review\challenges\agent-f8fb8bda\06_code\submission\scripts\run_skill.py" --case "tracks\deep-research-literature-review\challenges\agent-f8fb8bda\06_code\submission\examples\demo-case\case.json" --out "$env:TEMP\demo_agent-f8fb8bda\result.json" --work "$env:TEMP\demo_agent-f8fb8bda\work"
+```
+
+- 示例输入：`examples/demo-case/case.json`，合成且自包含（`"demo": true`，3 条带 abstract/text 的记录，含 1 条结论不一致；DOI 均为虚构的 `10.0000/...`）。
+- 实测输出：`status = "success"`、`subquestions = 4`，`result.json` 顶层含 `case_id`、`status`、`result`、`evidence`、`uncertainty`、`errors`、`stats`；同一输入两次运行结果逐字节一致。
+- 该用例只验证脚本可执行与输出契约齐全，不代表真实综述结论。
+
 ## 最小调用示例（示例，非正式案例结果）
 
 ```bash
