@@ -1,0 +1,50 @@
+{
+  "demo": true,
+  "synthetic": true,
+  "case_id": "demo-agent-f8fb8bda-nlrp3-saki",
+  "note": "Synthetic, self-contained demo case. Records, DOIs (10.0000/...) and reported findings are fabricated for testing only.",
+  "research_question": "Does NLRP3 inflammasome activation drive pyroptosis and acute kidney injury in sepsis, and which biomarkers predict progression?",
+  "scope": "Translational nephrology; human cohorts and mouse models of sepsis-associated acute kidney injury",
+  "time_range": "2015-2024",
+  "records": [
+    {
+      "source_id": "S1",
+      "title": "NLRP3 inflammasome activation drives tubular pyroptosis in septic acute kidney injury",
+      "abstract": "NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury.",
+      "text": "NLRP3 inflammasome activation increased caspase-1 activity and gasdermin D cleavage in tubular epithelial cells. Genetic deletion of NLRP3 reduced pyroptosis and preserved kidney function in septic mice.",
+      "year": 2019,
+      "doi": "10.0000/demo.g1",
+      "journal": "Kidney International",
+      "authors": "Li J, Wang H"
+    },
+    {
+      "source_id": "S2",
+      "title": "Urinary NLRP3 predicts progression of acute kidney injury in sepsis",
+      "abstract": "In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis.",
+      "text": "Among 120 patients with sepsis, urinary NLRP3 at admission predicted progression of acute kidney injury and need for renal replacement therapy.",
+      "year": 2023,
+      "doi": "10.0000/demo.g2",
+      "journal": "Critical Care",
+      "authors": "Zhao Y, Sun L"
+    },
+    {
+      "source_id": "S3",
+      "title": "Gasdermin D cleavage and pyroptosis in sepsis-associated organ injury",
+      "abstract": "Gasdermin D cleavage was associated with pyroptosis in sepsis, but not with acute kidney injury severity.",
+      "text": "Plasma gasdermin D correlated with pyroptosis markers across organs. The association with acute kidney injury severity was weak and not significant after adjustment.",
+      "year": 2021,
+      "doi": "10.0000/demo.g3",
+      "journal": "Journal of Critical Care",
+      "authors": "Chen X"
+    }
+  ],
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "result": "object",
+    "evidence": "array",
+    "uncertainty": "array",
+    "errors": "array",
+    "stats": "object"
+  }
+}
