@@ -1,0 +1,893 @@
+{
+  "case_id": "demo-agent-f8fb8bda-nlrp3-saki",
+  "status": "success",
+  "result": {
+    "research_question": "Does NLRP3 inflammasome activation drive pyroptosis and acute kidney injury in sepsis, and which biomarkers predict progression?",
+    "question_decomposition": {
+      "facets_detected": [
+        "gap",
+        "method",
+        "object",
+        "prediction"
+      ],
+      "object_terms": [
+        "nlrp3",
+        "inflammasome",
+        "activation",
+        "drive",
+        "pyroptosis",
+        "acute",
+        "kidney",
+        "injury",
+        "sepsis",
+        "biomarkers"
+      ],
+      "parsed_question": {
+        "raw": "Does NLRP3 inflammasome activation drive pyroptosis and acute kidney injury in sepsis, and which biomarkers predict progression?",
+        "keyword_string": false,
+        "object": "NLRP3 inflammasome activation",
+        "intervention": "NLRP3 inflammasome activation",
+        "outcome": "drive pyroptosis and acute kidney injury",
+        "population": "sepsis",
+        "secondary": "which biomarkers predict progression"
+      },
+      "subquestions": [
+        {
+          "id": "Q1",
+          "question": "What effect does NLRP3 inflammasome activation have on pyroptosis and acute kidney injury in sepsis, and which supplied records report it?",
+          "facet": "object",
+          "depends_on": [],
+          "search_queries": [
+            "\"pyroptosis\" AND \"acute\" AND \"kidney\" AND \"injury\""
+          ],
+          "match_terms": [
+            "pyroptosis",
+            "acute",
+            "kidney",
+            "injury"
+          ],
+          "facet_terms": [],
+          "sources": [
+            "supplied_corpus",
+            "external_search_optional"
+          ],
+          "stop_condition": "stop when every supplied record has been screened against this question",
+          "priority": 1
+        },
+        {
+          "id": "Q2",
+          "question": "Which biomarkers predict progression in sepsis?",
+          "facet": "prediction",
+          "depends_on": [
+            "Q1"
+          ],
+          "search_queries": [
+            "\"nlrp3\" AND \"inflammasome\" AND (\"biomarkers\" OR \"predict\" OR \"progression\")"
+          ],
+          "match_terms": [
+            "biomarkers",
+            "predict",
+            "progression"
+          ],
+          "facet_terms": [
+            "biomarkers",
+            "predict",
+            "progression"
+          ],
+          "sources": [
+            "supplied_corpus",
+            "external_search_optional"
+          ],
+          "stop_condition": "stop when every supplied record stating a predictor has a quoted span",
+          "priority": 2
+        },
+        {
+          "id": "Q3",
+          "question": "Which designs, models and measurement approaches have been used to study NLRP3 inflammasome activation in sepsis?",
+          "facet": "method",
+          "depends_on": [
+            "Q1"
+          ],
+          "search_queries": [
+            "\"nlrp3\" AND \"inflammasome\" AND (\"cohort\" OR \"trial\" OR \"model\" OR \"design\")"
+          ],
+          "match_terms": [
+            "nlrp3",
+            "inflammasome",
+            "activation",
+            "cohort",
+            "trial",
+            "model",
+            "design"
+          ],
+          "facet_terms": [
+            "cohort",
+            "trial",
+            "model",
+            "design"
+          ],
+          "sources": [
+            "supplied_corpus",
+            "external_search_optional"
+          ],
+          "stop_condition": "stop when design categories repeat for three consecutive records",
+          "priority": 3
+        },
+        {
+          "id": "Q4",
+          "question": "Where does the supplied corpus stop, and which claims remain unsupported or under-sourced?",
+          "facet": "gap",
+          "depends_on": [
+            "Q1",
+            "Q2",
+            "Q3"
+          ],
+          "search_queries": [
+            "coverage audit of the supplied corpus only"
+          ],
+          "match_terms": [],
+          "facet_terms": [],
+          "sources": [
+            "supplied_corpus",
+            "external_search_optional"
+          ],
+          "stop_condition": "stop after the coverage audit; no external search",
+          "priority": 4
+        }
+      ],
+      "dependency_note": "Q1 is the retrieval anchor; Q2, Q3 depend on Q1; Q4 audits coverage of all earlier stages."
+    },
+    "retrieval_plan": {
+      "state": "declared",
+      "order": [
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4"
+      ],
+      "stages": [
+        {
+          "stage": 0,
+          "subquestions": [
+            "Q1"
+          ]
+        },
+        {
+          "stage": 1,
+          "subquestions": [
+            "Q2",
+            "Q3"
+          ]
+        },
+        {
+          "stage": 3,
+          "subquestions": [
+            "Q4"
+          ]
+        }
+      ],
+      "queries": {
+        "Q1": [
+          "\"pyroptosis\" AND \"acute\" AND \"kidney\" AND \"injury\""
+        ],
+        "Q2": [
+          "\"nlrp3\" AND \"inflammasome\" AND (\"biomarkers\" OR \"predict\" OR \"progression\")"
+        ],
+        "Q3": [
+          "\"nlrp3\" AND \"inflammasome\" AND (\"cohort\" OR \"trial\" OR \"model\" OR \"design\")"
+        ],
+        "Q4": [
+          "coverage audit of the supplied corpus only"
+        ]
+      },
+      "deduplication": "sub-questions whose search-term sets overlap by 75% or more are merged; each source_id is assigned to exactly one sub-question, so the evidence matrix lists it once",
+      "stop_conditions": {
+        "Q1": "stop when every supplied record has been screened against this question",
+        "Q2": "stop when every supplied record stating a predictor has a quoted span",
+        "Q3": "stop when design categories repeat for three consecutive records",
+        "Q4": "stop after the coverage audit; no external search"
+      },
+      "external_search_note": "queries are ready to run externally; this run does not access the network"
+    },
+    "evidence_matrix": [
+      {
+        "subquestion_id": "Q1",
+        "source_id": "S1",
+        "locator": "/records/0",
+        "relevance_score": 12,
+        "coverage_fraction": 1.0,
+        "support_level": "direct",
+        "quote_field": "abstract",
+        "matched_terms": [
+          "pyroptosis",
+          "acute",
+          "kidney",
+          "injury"
+        ],
+        "quote": "NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury.",
+        "year": 2019,
+        "polarity": "positive"
+      },
+      {
+        "subquestion_id": "Q1",
+        "source_id": "S3",
+        "locator": "/records/2",
+        "relevance_score": 10,
+        "coverage_fraction": 1.0,
+        "support_level": "direct",
+        "quote_field": "body",
+        "matched_terms": [
+          "pyroptosis",
+          "acute",
+          "kidney",
+          "injury"
+        ],
+        "quote": "The association with acute kidney injury severity was weak and not significant after adjustment.",
+        "year": 2021,
+        "polarity": "no_difference"
+      },
+      {
+        "subquestion_id": "Q2",
+        "source_id": "S2",
+        "locator": "/records/1",
+        "relevance_score": 6,
+        "coverage_fraction": 0.667,
+        "support_level": "direct",
+        "quote_field": "abstract",
+        "matched_terms": [
+          "predict",
+          "progression"
+        ],
+        "quote": "In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis.",
+        "year": 2023,
+        "polarity": "positive"
+      }
+    ],
+    "synthesis": [
+      {
+        "subquestion_id": "Q1",
+        "direction": "mixed",
+        "statement": "Direction: mixed. Cited sources: S1, S3. Effect: S1 reports \"NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury\", whereas S3 reports \"The association with acute kidney injury severity was weak and not significant after adjustment\".",
+        "effect_summary": "S1 reports \"NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury\", whereas S3 reports \"The association with acute kidney injury severity was weak and not significant after adjustment\"",
+        "strength": "supported",
+        "cited_sources": [
+          {
+            "source_id": "S1",
+            "locator": "/records/0",
+            "quote": "NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury.",
+            "quote_field": "abstract"
+          },
+          {
+            "source_id": "S3",
+            "locator": "/records/2",
+            "quote": "The association with acute kidney injury severity was weak and not significant after adjustment.",
+            "quote_field": "body"
+          }
+        ],
+        "scope_limit": "only the supplied corpus; no external retrieval was performed"
+      },
+      {
+        "subquestion_id": "Q2",
+        "direction": "favours",
+        "statement": "Direction: favours. Cited sources: S2. Effect: S2 reports \"In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis\".",
+        "effect_summary": "S2 reports \"In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis\"",
+        "strength": "partial",
+        "cited_sources": [
+          {
+            "source_id": "S2",
+            "locator": "/records/1",
+            "quote": "In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis.",
+            "quote_field": "abstract"
+          }
+        ],
+        "scope_limit": "only the supplied corpus; no external retrieval was performed"
+      }
+    ],
+    "conflicts": [
+      {
+        "subquestion_id": "Q1",
+        "type": "opposing_direction",
+        "shared_terms": [
+          "acute",
+          "cleavage",
+          "gasdermin",
+          "injury",
+          "kidney",
+          "pyroptosis"
+        ],
+        "supporting": {
+          "source_id": "S1",
+          "locator": "/records/0",
+          "quote": "NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury.",
+          "quote_field": "abstract"
+        },
+        "opposing": {
+          "source_id": "S3",
+          "locator": "/records/2",
+          "quote": "The association with acute kidney injury severity was weak and not significant after adjustment.",
+          "quote_field": "body"
+        },
+        "source_distinct": true,
+        "handling": "both directions are reported; neither is selected as correct"
+      },
+      {
+        "subquestion_id": "Q2",
+        "type": "opposing_direction",
+        "shared_terms": [
+          "acute",
+          "injury",
+          "kidney",
+          "sepsis"
+        ],
+        "supporting": {
+          "source_id": "S2",
+          "locator": "/records/1",
+          "quote": "In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis.",
+          "quote_field": "abstract"
+        },
+        "opposing": {
+          "source_id": "S3",
+          "locator": "/records/2",
+          "quote": "The association with acute kidney injury severity was weak and not significant after adjustment.",
+          "quote_field": "body"
+        },
+        "source_distinct": true,
+        "handling": "both directions are reported; neither is selected as correct"
+      }
+    ],
+    "research_gaps": [
+      {
+        "subquestion_id": "Q2",
+        "type": "single_source",
+        "basis": "only one distinct record matched",
+        "bounded_claim": "single-source only; replication absent",
+        "corpus_state": "corpus_present_single_match",
+        "retrieval_status": "external_queries_declared_not_run",
+        "distinction": "one supporting span is present; a second independent source was not retrieved",
+        "queries_tried": [
+          {
+            "query": "\"nlrp3\" AND \"inflammasome\" AND (\"biomarkers\" OR \"predict\" OR \"progression\")",
+            "source": "supplied_corpus",
+            "executed": true,
+            "hits": 1
+          }
+        ],
+        "human_confirm": "confirm whether an independent replication source exists before generalising"
+      },
+      {
+        "subquestion_id": "Q3",
+        "type": "no_evidence",
+        "basis": "no supplied record matched this sub-question",
+        "bounded_claim": "cannot be assessed from the supplied corpus",
+        "corpus_state": "corpus_present_without_match",
+        "retrieval_status": "external_queries_declared_not_run",
+        "distinction": "corpus searched, no matching span; external retrieval not attempted",
+        "queries_tried": [
+          {
+            "query": "\"nlrp3\" AND \"inflammasome\" AND (\"cohort\" OR \"trial\" OR \"model\" OR \"design\")",
+            "source": "supplied_corpus",
+            "executed": true,
+            "hits": 0
+          }
+        ],
+        "human_confirm": "confirm whether to run the listed queries in an external database before treating this as a field-level gap"
+      }
+    ],
+    "coverage": {
+      "records_supplied": 3,
+      "records_cited": 3,
+      "records_with_outcome_text": 3,
+      "recall": 1.0,
+      "recall_basis": "cited records carrying a quotable outcome sentence divided by all supplied records; title-only records are not counted as covered",
+      "year_range": [
+        2019,
+        2023
+      ],
+      "time_window": {
+        "from": 2015,
+        "to": 2024,
+        "raw": "2015-2024"
+      }
+    },
+    "limitations": [
+      "Sub-questions are generated from surface cues in the question; they do not replace domain-expert framing.",
+      "Evidence is aligned by term matching and quotes; semantic entailment is not verified.",
+      "Conflicts are detected from polarity cues in the supplied text, not from a full reading of each study.",
+      "No external database was queried, so the corpus bounds every conclusion."
+    ],
+    "change_log": [
+      "Decomposed the research question into facet-labelled sub-questions with dependencies.",
+      "Declared an ordered retrieval plan (state=declared) with per-sub-question queries and stop conditions.",
+      "Screened and de-duplicated the supplied records and reported PRISMA counts.",
+      "Replayed each declared query as an iteration and bound hits to the evidence matrix.",
+      "Aligned supplied records to sub-questions with quoted evidence and support levels.",
+      "Reported opposing directions as conflicts instead of choosing one side.",
+      "Derived research gaps from coverage of the supplied corpus only.",
+      "Ran quote, locator, contract, conflict, gap and PRISMA gates from the emitted payload."
+    ],
+    "artifacts": [
+      {
+        "name": "research_report.md",
+        "kind": "report",
+        "path": "research_report.md",
+        "exists": true,
+        "bytes": 4260,
+        "sha256": "c65c732f4be0518ad9e0d49783eaec14a04b8edb03cf123be217a9830e60d283"
+      },
+      {
+        "name": "synthesis_matrix.csv",
+        "kind": "table",
+        "path": "synthesis_matrix.csv",
+        "exists": true,
+        "bytes": 644,
+        "sha256": "ce7862d9025d89e1a703c350ff1bac72093c48cb68b8e19981843d1bcbd33d78"
+      },
+      {
+        "name": "screening_log.csv",
+        "kind": "table",
+        "path": "screening_log.csv",
+        "exists": true,
+        "bytes": 937,
+        "sha256": "4af12a9a3172bbcec7b2b9cc50445fa35925abcc64df82a1ab3514dee38cc600"
+      },
+      {
+        "name": "prisma_flow.svg",
+        "kind": "figure",
+        "path": "prisma_flow.svg",
+        "exists": true,
+        "bytes": 3019,
+        "sha256": "108f150ee0a07f117c0d253d24a965d0b883000d6d33e301d750f64705aa4edb"
+      },
+      {
+        "name": "provenance.json",
+        "kind": "provenance",
+        "path": "provenance.json",
+        "exists": true,
+        "bytes": 1729,
+        "sha256": "b3dcaa5ee6c9faf33db5f8ce72b1e50ed3895a370904304f0e44d113f39cdbbf"
+      },
+      {
+        "name": "validation.json",
+        "kind": "validation",
+        "path": "validation.json",
+        "exists": true,
+        "bytes": 3623,
+        "sha256": "8730cbf842c9858582480ee57d8cf3c817b152bc15ac838ccd889da302023fd7"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "kind": "evidence_row",
+      "subquestion_id": "Q1",
+      "source_id": "S1",
+      "locator": "/records/0",
+      "quote": "NLRP3 inflammasome activation and gasdermin D cleavage caused tubular pyroptosis in mice with sepsis, and NLRP3 deletion reduced acute kidney injury.",
+      "relevance_score": 12
+    },
+    {
+      "kind": "evidence_row",
+      "subquestion_id": "Q1",
+      "source_id": "S3",
+      "locator": "/records/2",
+      "quote": "The association with acute kidney injury severity was weak and not significant after adjustment.",
+      "relevance_score": 10
+    },
+    {
+      "kind": "evidence_row",
+      "subquestion_id": "Q2",
+      "source_id": "S2",
+      "locator": "/records/1",
+      "quote": "In a prospective cohort, higher urinary NLRP3 predicted progression of acute kidney injury in patients with sepsis.",
+      "relevance_score": 6
+    },
+    {
+      "kind": "source",
+      "source_id": "S1",
+      "locator": "/records/0",
+      "title": "NLRP3 inflammasome activation drives tubular pyroptosis in septic acute kidney injury",
+      "year": 2019,
+      "doi": "10.0000/demo.g1",
+      "venue": "Kidney International"
+    },
+    {
+      "kind": "source",
+      "source_id": "S2",
+      "locator": "/records/1",
+      "title": "Urinary NLRP3 predicts progression of acute kidney injury in sepsis",
+      "year": 2023,
+      "doi": "10.0000/demo.g2",
+      "venue": "Critical Care"
+    },
+    {
+      "kind": "source",
+      "source_id": "S3",
+      "locator": "/records/2",
+      "title": "Gasdermin D cleavage and pyroptosis in sepsis-associated organ injury",
+      "year": 2021,
+      "doi": "10.0000/demo.g3",
+      "venue": "Journal of Critical Care"
+    }
+  ],
+  "uncertainty": [
+    {
+      "type": "no_external_search",
+      "detail": "Retrieval is limited to the supplied corpus; the plan states what an external search would add."
+    }
+  ],
+  "errors": [],
+  "screening": [
+    {
+      "screening_id": "SC01",
+      "source_id": "S1",
+      "locator": "/records/0",
+      "title": "NLRP3 inflammasome activation drives tubular pyroptosis in septic acute kidney injury",
+      "year": 2019,
+      "doi": "10.0000/demo.g1",
+      "decision": "include",
+      "reason": "matched sub-question terms and was cited in the evidence matrix",
+      "criteria_applied": [
+        "has_bibliographic_content",
+        "has_publication_year",
+        "has_doi",
+        "matches_subquestion_terms"
+      ],
+      "duplicate_of": null,
+      "matched_subquestions": [
+        "Q1"
+      ]
+    },
+    {
+      "screening_id": "SC02",
+      "source_id": "S2",
+      "locator": "/records/1",
+      "title": "Urinary NLRP3 predicts progression of acute kidney injury in sepsis",
+      "year": 2023,
+      "doi": "10.0000/demo.g2",
+      "decision": "include",
+      "reason": "matched sub-question terms and was cited in the evidence matrix",
+      "criteria_applied": [
+        "has_bibliographic_content",
+        "has_publication_year",
+        "has_doi",
+        "matches_subquestion_terms"
+      ],
+      "duplicate_of": null,
+      "matched_subquestions": [
+        "Q2"
+      ]
+    },
+    {
+      "screening_id": "SC03",
+      "source_id": "S3",
+      "locator": "/records/2",
+      "title": "Gasdermin D cleavage and pyroptosis in sepsis-associated organ injury",
+      "year": 2021,
+      "doi": "10.0000/demo.g3",
+      "decision": "include",
+      "reason": "matched sub-question terms and was cited in the evidence matrix",
+      "criteria_applied": [
+        "has_bibliographic_content",
+        "has_publication_year",
+        "has_doi",
+        "matches_subquestion_terms"
+      ],
+      "duplicate_of": null,
+      "matched_subquestions": [
+        "Q1"
+      ]
+    }
+  ],
+  "prisma": {
+    "n_identified": 3,
+    "n_duplicates": 0,
+    "n_screened": 3,
+    "n_excluded_by_code": 0,
+    "n_included": 3,
+    "n_pending": 0,
+    "balance_ok": true,
+    "stages": [
+      {
+        "stage": "identified",
+        "count": 3
+      },
+      {
+        "stage": "duplicates_removed",
+        "count": 0
+      },
+      {
+        "stage": "screened",
+        "count": 3
+      },
+      {
+        "stage": "excluded_by_code",
+        "count": 0
+      },
+      {
+        "stage": "included",
+        "count": 3
+      },
+      {
+        "stage": "pending",
+        "count": 0
+      }
+    ]
+  },
+  "iterations": [
+    {
+      "iteration": 1,
+      "subquestion_id": "Q1",
+      "status": "executed_with_hits",
+      "queries_run": [
+        {
+          "query": "\"pyroptosis\" AND \"acute\" AND \"kidney\" AND \"injury\"",
+          "source": "supplied_corpus",
+          "executed": true,
+          "hits": 2
+        }
+      ],
+      "artifacts_ref": [
+        "evidence_matrix[Q1]",
+        "synthesis[Q1]"
+      ],
+      "new_evidence_ids": [
+        "S1",
+        "S3"
+      ],
+      "synthesis_note": "2 evidence row(s) were bound to this sub-question."
+    },
+    {
+      "iteration": 2,
+      "subquestion_id": "Q2",
+      "status": "executed_with_hits",
+      "queries_run": [
+        {
+          "query": "\"nlrp3\" AND \"inflammasome\" AND (\"biomarkers\" OR \"predict\" OR \"progression\")",
+          "source": "supplied_corpus",
+          "executed": true,
+          "hits": 1
+        }
+      ],
+      "artifacts_ref": [
+        "evidence_matrix[Q2]",
+        "synthesis[Q2]"
+      ],
+      "new_evidence_ids": [
+        "S2"
+      ],
+      "synthesis_note": "1 evidence row(s) were bound to this sub-question."
+    },
+    {
+      "iteration": 3,
+      "subquestion_id": "Q3",
+      "status": "executed_no_hits",
+      "queries_run": [
+        {
+          "query": "\"nlrp3\" AND \"inflammasome\" AND (\"cohort\" OR \"trial\" OR \"model\" OR \"design\")",
+          "source": "supplied_corpus",
+          "executed": true,
+          "hits": 0
+        }
+      ],
+      "artifacts_ref": [
+        "research_gaps[Q3]"
+      ],
+      "new_evidence_ids": [],
+      "synthesis_note": "The declared query matched no supplied record; see research_gaps."
+    },
+    {
+      "iteration": 4,
+      "subquestion_id": "Q4",
+      "status": "audit_only",
+      "queries_run": [
+        {
+          "query": "coverage audit of the supplied corpus only",
+          "source": "supplied_corpus",
+          "executed": false,
+          "hits": 0
+        }
+      ],
+      "artifacts_ref": [
+        "research_gaps",
+        "coverage"
+      ],
+      "new_evidence_ids": [],
+      "synthesis_note": "Coverage audit only; no external query was executed."
+    }
+  ],
+  "stats": {
+    "records": 3,
+    "subquestions": 4,
+    "evidence_rows": 3,
+    "conflicts": 2,
+    "gaps": 2,
+    "records_with_year": 3,
+    "screened_included": 3,
+    "screened_excluded": 0,
+    "screened_pending": 0,
+    "duplicates_removed": 0,
+    "iterations": 4,
+    "network": "disabled"
+  },
+  "contract_notes": {
+    "case_id": "produced directly by this run",
+    "status": "produced directly by this run",
+    "result": "produced directly by this run",
+    "evidence": "produced directly by this run",
+    "uncertainty": "produced directly by this run",
+    "errors": "produced directly by this run",
+    "stats": "produced directly by this run"
+  },
+  "output_contract_fields": {
+    "provided": [
+      "case_id",
+      "status",
+      "result",
+      "evidence",
+      "uncertainty",
+      "errors",
+      "stats"
+    ],
+    "present": {
+      "case_id": true,
+      "status": true,
+      "result": true,
+      "evidence": true,
+      "uncertainty": true,
+      "errors": true,
+      "stats": true
+    }
+  },
+  "verification": {
+    "quote_check": {
+      "checked": 3,
+      "verified": 3,
+      "not_found": []
+    },
+    "conflict_check": {
+      "checked": 4,
+      "verified": 2,
+      "pairs": 2,
+      "violations": []
+    },
+    "locator_check": {
+      "checked": 7,
+      "resolved": 7,
+      "failed": []
+    },
+    "contract_check": {
+      "required": [
+        "case_id",
+        "status",
+        "result",
+        "evidence",
+        "uncertainty",
+        "errors",
+        "stats"
+      ],
+      "missing": []
+    },
+    "gap_check": {
+      "gaps": 2,
+      "with_basis_and_queries": 2
+    },
+    "iteration_check": {
+      "iterations": 4,
+      "aligned_with_plan": true
+    }
+  },
+  "self_check": [
+    {
+      "item": "case_id_preserved",
+      "passed": true,
+      "detail": "output case_id matches the input case_id"
+    },
+    {
+      "item": "status_enum",
+      "passed": true,
+      "detail": "status is one of success, partial, insufficient_input, failed"
+    },
+    {
+      "item": "contract_fields_present",
+      "passed": true,
+      "detail": "contract keys missing: none"
+    },
+    {
+      "item": "quote_integrity",
+      "passed": true,
+      "detail": "3/3 evidence quotes were found verbatim in the source text"
+    },
+    {
+      "item": "locator_resolvable",
+      "passed": true,
+      "detail": "7/7 locators resolve inside case.json"
+    },
+    {
+      "item": "conflict_evidence",
+      "passed": true,
+      "detail": "2/2 conflicts carry two verified quotes from distinct sources"
+    },
+    {
+      "item": "gap_basis",
+      "passed": true,
+      "detail": "2 gap(s) carry basis, bounded claim, queries_tried and human_confirm"
+    },
+    {
+      "item": "prisma_balance",
+      "passed": true,
+      "detail": "screened equals excluded + included + pending"
+    },
+    {
+      "item": "iteration_plan_alignment",
+      "passed": true,
+      "detail": "4 iteration(s) replay the declared queries"
+    },
+    {
+      "item": "strength_consistency",
+      "passed": true,
+      "detail": "supported synthesis items cite only direct-support rows"
+    },
+    {
+      "item": "no_placeholder",
+      "passed": true,
+      "detail": "no TODO/TBD/FIXME placeholder was serialised"
+    }
+  ],
+  "gates": [
+    {
+      "gate": "case_contract",
+      "passed": true,
+      "detail": "case_id, status enum and declared contract keys"
+    },
+    {
+      "gate": "quote_integrity",
+      "passed": true,
+      "detail": "every quote is a verbatim span"
+    },
+    {
+      "gate": "locator_resolvable",
+      "passed": true,
+      "detail": "every locator resolves in the case"
+    },
+    {
+      "gate": "conflict_validity",
+      "passed": true,
+      "detail": "conflict sides quote and come from distinct sources"
+    },
+    {
+      "gate": "gap_evidence",
+      "passed": true,
+      "detail": "gaps carry basis, queries and human confirmation"
+    },
+    {
+      "gate": "prisma_balance",
+      "passed": true,
+      "detail": "screening counts balance"
+    },
+    {
+      "gate": "iteration_plan_alignment",
+      "passed": true,
+      "detail": "iterations replay declared queries"
+    },
+    {
+      "gate": "strength_consistency",
+      "passed": true,
+      "detail": "synthesis strength matches row support"
+    },
+    {
+      "gate": "no_placeholder",
+      "passed": true,
+      "detail": "no placeholder tokens"
+    }
+  ],
+  "validator_verdict": {
+    "verdict": "pass",
+    "checks_total": 9,
+    "checks_passed": 9,
+    "all_checks_passed": true,
+    "failed_gates": []
+  },
+  "_demo": true,
+  "_demo_note": "Generated by running scripts/run_skill.py on examples/demo-case/case.json. Synthetic data (DOI 10.0000/...); not an official case result.",
+  "_artifacts_note": "The six companion files named in result.artifacts are written next to result.json at run time."
+}
