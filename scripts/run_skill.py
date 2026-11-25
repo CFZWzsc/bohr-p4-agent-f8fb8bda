@@ -36,6 +36,7 @@ STOPWORDS = {
 }
 POSITIVE_CUES = ("increase", "increased", "improve", "improved", "benefit", "beneficial", "effective",
                  "efficacy", "significant", "positive", "superior", "enhance", "reduced risk", "protective",
+                 "reduced", "lower", "lowered", "decreased", "preserved", "attenuated", "protected", "higher",
                  "有效", "改善", "提高", "显著", "优于", "支持", "正相关", "获益")
 NEGATIVE_CUES = ("no effect", "no significant", "not significant", "null", "ineffective", "no benefit",
                  "worse", "adverse", "harm", "negative", "failed", "contradict", "no association",
@@ -47,6 +48,30 @@ FACET_PATTERNS = (
     ("outcome", r"effect\w*|impact|efficacy|outcome|association|prognos\w*|influence|影响|效果|疗效|关联|预后"),
     ("temporal", r"trend|over time|longitudinal|temporal|year\w*|趋势|时间|纵向|演变"),
 )
+OUTCOME_CUE_RE = re.compile(
+    r"significant(?:ly)?|reduced|reduction|lower|lowered|no difference|improved|improvement|"
+    r"increased|increase|hba1c|risk|effect|association|associated|compared|decreas\w*|higher|"
+    r"predict\w*|correlat\w*|\d+(?:\.\d+)?\s*%|p\s*[<=]", re.IGNORECASE)
+NO_DIFF_CUES = ("no difference", "no significant", "not significant", "no association", "no effect",
+                "no benefit", "did not", "does not", "was not associated", "null result",
+                "无差异", "无显著", "无关", "不支持", "未发现")
+AUX_PREFIX_RE = re.compile(r"^(?:does|do|is|are|can|could|will|would|should|did|has|have)\b\s*", re.IGNORECASE)
+SECONDARY_SPLIT_RE = re.compile(r",?\s*(?:and|;)\s*(which|what|whether)\b", re.IGNORECASE)
+POPULATION_SPLIT_RE = re.compile(r"\s+(?:in|among|for|within)\s+(.+)$", re.IGNORECASE)
+EFFECT_VERB_RE = re.compile(
+    r"\b(?:drives?|improves?|reduces?|increases?|affects?|influences?|causes?|predicts?|leads?|"
+    r"prevents?|lowers?|decreases?|alters?|impacts?|changes?|associates?|determines?|modulates?)\b",
+    re.IGNORECASE)
+OUTCOME_WORDS = ("hba1c", "glycemic", "glycaemic", "outcome", "mortality", "progression", "risk",
+                 "incidence", "survival", "efficacy", "control", "injury", "function", "severity",
+                 "biomarker", "effect")
+POPULATION_WORDS = ("adult", "patient", "children", "child", "mice", "mouse", "rats", "women", "men",
+                    "elderly", "cohort", "population", "diabetes", "sepsis", "cancer", "pregnancy",
+                    "infant", "adolescent", "obesity", "stroke", "critically ill", "human", "embryo")
+INTERVENTION_WORDS = ("fasting", "diet", "exercise", "supplement", "drug", "inhibitor", "therapy",
+                      "treatment", "statin", "metformin", "vaccine", "training", "probiotic", "vitamin",
+                      "inflammasome", "blockade", "deletion", "agonist", "antagonist")
+MERGE_THRESHOLD = 0.75
 
 
 def load_json(path):
@@ -132,15 +157,30 @@ def term_in(term, text):
     return bool(term) and term in text.lower()
 
 
-def quote_for(text, terms, width=260):
-    lowered = text.lower()
-    for term in terms:
-        position = lowered.find(term)
-        if position >= 0:
-            for sentence in sentences(text):
-                if term in sentence.lower():
-                    return sentence[:width]
-    return ""
+def best_outcome_sentence(record):
+    """Pick the abstract/body sentence that carries the strongest outcome or effect cue."""
+    best = None
+    for field in ("abstract", "body"):
+        for sentence in sentences(record.get(field) or ""):
+            cues = OUTCOME_CUE_RE.findall(sentence)
+            if not cues:
+                continue
+            score = len(cues) * 2 + (1 if re.search(r"\d", sentence) else 0) + (1 if field == "abstract" else 0)
+            if best is None or score > best[0] or (score == best[0] and len(sentence) < len(best[2])):
+                best = (score, field, sentence)
+    return (best[2], best[1]) if best else ("", "")
+
+
+def prepare_record(record):
+    """Attach the outcome quote, its field and the directional polarity used downstream."""
+    sentence, field = best_outcome_sentence(record)
+    if sentence:
+        record["_quote"], record["_quote_field"], record["_has_outcome"] = sentence, field, True
+        record["_polarity"] = polarity(sentence)
+    else:
+        record["_quote"], record["_quote_field"], record["_has_outcome"] = record["title"][:260], "title", False
+        record["_polarity"] = "neutral"
+    return record
 
 
 def looks_like_record(node):
@@ -226,6 +266,107 @@ def scope_window(case, question):
     return {"from": low, "to": high, "raw": as_text(raw)}
 
 
+def is_keyword_string(text):
+    text = norm_space(text)
+    if not text or "?" in text:
+        return False
+    if re.search(r"\b(does|do|is|are|can|could|will|would|should|whether|how|what|which|why)\b", text, re.IGNORECASE):
+        return False
+    chunks = [chunk for chunk in re.split(r"[,;，；]| / |\band\b", text) if chunk.strip()]
+    return len(chunks) >= 2 and len(text.split()) <= 24
+
+
+def classify_chunk(chunk):
+    lowered = chunk.lower()
+    if any(word in lowered for word in OUTCOME_WORDS):
+        return "outcome"
+    if any(word in lowered for word in POPULATION_WORDS):
+        return "population"
+    if any(word in lowered for word in INTERVENTION_WORDS):
+        return "intervention"
+    return "object"
+
+
+def parse_question(question):
+    """Split a question (or a comma-joined keyword string) into searchable facets."""
+    parsed = {"raw": norm_space(question), "keyword_string": False,
+              "object": "", "intervention": "", "outcome": "", "population": "", "secondary": ""}
+    text = norm_space(question).rstrip(" ?.!。！")
+    if not text:
+        return parsed
+    if is_keyword_string(text):
+        parsed["keyword_string"] = True
+        buckets = {"object": [], "intervention": [], "outcome": [], "population": []}
+        for chunk in re.split(r"[,;，；/]|\band\b", text):
+            chunk = chunk.strip(" .;")
+            if chunk:
+                buckets[classify_chunk(chunk)].append(chunk)
+        parsed.update({key: " and ".join(value) for key, value in buckets.items()})
+        return parsed
+    secondary = ""
+    split = SECONDARY_SPLIT_RE.search(text)
+    if split:
+        secondary = norm_space(split.group(1) + " " + text[split.end():]).strip(" ,;")
+        text = text[:split.start()].strip(" ,;")
+    text = AUX_PREFIX_RE.sub("", text).strip(" ,;")
+    population = ""
+    pop = POPULATION_SPLIT_RE.search(text)
+    if pop and len(pop.group(1).split()) <= 12:
+        population = pop.group(1).strip(" ,;")
+        text = text[:pop.start()].strip(" ,;")
+    verb = EFFECT_VERB_RE.search(text)
+    if verb:
+        intervention = text[:verb.start()].strip(" ,;")
+        outcome = text[verb.start():].strip(" ,;")
+    else:
+        intervention, outcome = text, ""
+    parsed.update({"object": intervention or text, "intervention": intervention,
+                   "outcome": outcome, "population": population, "secondary": secondary})
+    return parsed
+
+
+def query_for(terms):
+    clean = [term for term in terms if term][:4]
+    if not clean:
+        return ""
+    return " AND ".join('"%s"' % term for term in clean)
+
+
+def merge_specs(specs):
+    """Merge sub-questions whose search-term sets overlap above MERGE_THRESHOLD."""
+    merged = []
+    for spec in specs:
+        terms = set(spec["match_terms"])
+        target = None
+        for prior in merged:
+            prior_terms = set(prior["match_terms"])
+            if not terms or not prior_terms:
+                continue
+            if len(terms & prior_terms) / float(len(terms | prior_terms)) >= MERGE_THRESHOLD:
+                target = prior
+                break
+        if target is None:
+            merged.append(dict(spec))
+        else:
+            target["match_terms"] = sorted(set(target["match_terms"]) | terms)
+            target["merged_facets"] = target.get("merged_facets", [target["facet"]]) + [spec["facet"]]
+    return merged
+
+
+def dependency_note_for(subquestions):
+    if not subquestions:
+        return "no sub-question was generated"
+    anchor = subquestions[0]["id"]
+    dependents = [sq["id"] for sq in subquestions[1:] if sq["facet"] != "gap"]
+    gap_ids = [sq["id"] for sq in subquestions if sq["facet"] == "gap"]
+    parts = ["%s is the retrieval anchor" % anchor]
+    if dependents:
+        parts.append("%s %s on %s" % (", ".join(dependents), "depends" if len(dependents) == 1 else "depend", anchor))
+    if gap_ids:
+        parts.append("%s audits coverage of all earlier stages" % ", ".join(gap_ids))
+    return "; ".join(parts) + "."
+
+
 def build_question(case, task_text, records):
     question = as_text(pick(case, ("research_question", "question", "topic", "objective", "aim", "research_topic", "query")))
     if not question:
@@ -235,44 +376,101 @@ def build_question(case, task_text, records):
                 question = line
                 break
     window = scope_window(case, question)
+    parsed = parse_question(question)
     object_terms = key_terms(question, limit=10)
     facets = detect_facets(question, as_text(pick(case, ("scope", "domain", "field", "constraints"))))
-    subquestions = []
 
-    def add(ident, text, facet, depends, queries, stop, priority):
+    intervention = parsed["intervention"] or parsed["object"]
+    outcome_object = EFFECT_VERB_RE.sub("", parsed["outcome"], count=1).strip(" ,;") if parsed["outcome"] else ""
+    population = parsed["population"]
+    place = " in %s" % population if population else ""
+    topic = intervention or outcome_object or question[:80] or "the stated topic"
+    base_terms = key_terms(intervention, limit=3)
+    specs = []
+
+    def add(facet, text, terms, facet_terms, query, stop, priority):
+        specs.append({"facet": facet, "question": text, "match_terms": terms,
+                      "facet_terms": facet_terms, "query": query,
+                      "stop_condition": stop, "priority": priority})
+
+    def inline(value):
+        if not value:
+            return value
+        head = value.split()[0]
+        if head.isupper() or any(char.isdigit() for char in head):
+            return value
+        return value[0].lower() + value[1:]
+
+    def facet_query(terms):
+        head = " AND ".join('"%s"' % term for term in base_terms[:2])
+        tail = " OR ".join('"%s"' % term for term in terms[:4])
+        return "%s AND (%s)" % (head, tail) if head else "(%s)" % tail
+
+    primary_terms = key_terms(outcome_object, limit=6) if outcome_object else key_terms(question, limit=5)
+    if outcome_object:
+        primary_text = "What effect does %s have on %s%s, and which supplied records report it?" % (
+            inline(topic), outcome_object, place)
+    else:
+        primary_text = "Which supplied records report evidence on %s%s?" % (inline(topic), place)
+    add("object", primary_text, primary_terms, [], query_for(primary_terms) or query_for(base_terms),
+        "stop when every supplied record has been screened against this question", 1)
+    if parsed["secondary"]:
+        secondary = parsed["secondary"].rstrip("?").strip()
+        terms = key_terms(secondary, limit=6)
+        add("prediction", "%s%s?" % (secondary[:1].upper() + secondary[1:], place), terms, terms,
+            facet_query(terms), "stop when every supplied record stating a predictor has a quoted span", 2)
+    if "mechanism" in facets:
+        terms = ["mechanism", "pathway"]
+        add("mechanism", "Which mechanisms or pathways link %s to %s?" % (inline(topic), outcome_object or "the reported outcome"),
+            base_terms[:2] + terms, terms, facet_query(terms),
+            "stop when no new mechanism term appears in the last 20% of records", 2)
+    if "method" in facets:
+        terms = ["cohort", "trial", "model", "design"]
+        add("method", "Which designs, models and measurement approaches have been used to study %s%s?" % (inline(topic), place),
+            base_terms[:3] + terms, terms, facet_query(terms),
+            "stop when design categories repeat for three consecutive records", 3)
+    if "comparison" in facets:
+        terms = ["versus", "comparison", "difference"]
+        add("comparison", "How do the compared conditions differ for %s, and how consistent is the reported direction?" % inline(topic),
+            base_terms[:3] + terms, terms, facet_query(terms),
+            "stop when both supporting and opposing directions are represented", 3)
+    if "temporal" in facets:
+        terms = ["trend", "longitudinal", "year"]
+        span = "%s-%s" % (window["from"], window["to"]) if window["from"] and window["to"] else "the requested period"
+        add("temporal", "How has the reported evidence for %s changed across %s?" % (inline(topic), span),
+            base_terms[:3] + terms, terms, facet_query(terms),
+            "stop when the year range of the corpus is exhausted", 3)
+
+    specs = merge_specs(specs)
+    specs.append({"facet": "gap",
+                  "question": "Where does the supplied corpus stop, and which claims remain unsupported or under-sourced?",
+                  "match_terms": [], "facet_terms": [], "query": "",
+                  "stop_condition": "stop after the coverage audit; no external search",
+                  "priority": 4})
+
+    subquestions = []
+    for index, spec in enumerate(specs, 1):
+        ident = "Q%d" % index
+        if spec["facet"] == "gap":
+            depends = ["Q%d" % number for number in range(1, index)]
+        elif index > 1:
+            depends = ["Q1"]
+        else:
+            depends = []
+        queries = [spec["query"]] if spec["query"] else ["coverage audit of the supplied corpus only"]
         subquestions.append({
             "id": ident,
-            "question": text,
-            "facet": facet,
+            "question": spec["question"],
+            "facet": spec["facet"],
             "depends_on": depends,
             "search_queries": queries,
+            "match_terms": spec["match_terms"],
+            "facet_terms": spec["facet_terms"],
             "sources": ["supplied_corpus", "external_search_optional"],
-            "stop_condition": stop,
-            "priority": priority,
+            "stop_condition": spec["stop_condition"],
+            "priority": spec["priority"],
         })
-
-    core = ", ".join(object_terms[:4]) or "the stated topic"
-    base_query = " AND ".join('"%s"' % term for term in object_terms[:3]) if object_terms else '"%s"' % question[:60]
-    add("Q1", "What is the current evidence base for %s, and which record types support it?" % core,
-        "object", [], [base_query], "stop when every supplied record has been screened for relevance", 1)
-    if "mechanism" in facets:
-        add("Q2", "Which mechanisms or pathways are proposed for %s in the supplied records?" % core,
-            "mechanism", ["Q1"], [base_query + ' AND (mechanism OR pathway)'], "stop when no new mechanism terms appear in the last 20% of records", 2)
-    if "method" in facets:
-        add("Q3", "Which designs, models and measurement approaches have been used to study %s?" % core,
-            "method", ["Q1"], [base_query + ' AND (method OR design OR model)'], "stop when design categories repeat for three consecutive records", 2)
-    if "comparison" in facets:
-        depends = [item for item in ("Q2", "Q3") if any(sq["id"] == item for sq in subquestions)] or ["Q1"]
-        add("Q4", "How do the compared conditions differ for %s, and how consistent is the reported direction?" % core,
-            "comparison", depends, [base_query + ' AND (versus OR comparison OR difference)'], "stop when both supporting and opposing directions are represented", 3)
-    if "temporal" in facets:
-        add("Q5", "How has the reported evidence for %s changed across the requested period?" % core,
-            "temporal", ["Q1"], [base_query + ' AND (trend OR longitudinal OR year)'], "stop when the year range of the corpus is exhausted", 3)
-    add("Q5B" if "temporal" in facets else "Q5", "What effect or association is reported for %s across the supplied records?" % core,
-        "outcome", ["Q1"], [base_query + ' AND (effect OR outcome OR association)'], "stop when every outcome statement has a quoted span", 3)
-    add("Q6", "Where does the supplied corpus stop, and which claims remain unsupported or under-sourced?",
-        "gap", [sq["id"] for sq in subquestions], ["coverage audit of the supplied corpus only"], "stop after coverage audit; no external search", 4)
-    return question, window, object_terms, subquestions
+    return question, window, object_terms, subquestions, parsed
 
 
 def order_plan(subquestions):
@@ -309,91 +507,197 @@ def relevance(record, terms):
 
 
 def polarity(text):
-    lowered = text.lower()
-    pos = sum(1 for cue in POSITIVE_CUES if cue in lowered)
-    neg = sum(2 if " " in cue or len(cue) > 6 else 1 for cue in NEGATIVE_CUES if cue in lowered)
-    if "no significant" in lowered or "not significant" in lowered or "no significant difference" in lowered:
-        pos = max(0, pos - 1)
+    lowered = norm_space(text).lower()
+    if not lowered:
+        return "neutral"
+    null_hit = any(cue in lowered for cue in NO_DIFF_CUES)
+    scrubbed = lowered
+    for cue in NO_DIFF_CUES:
+        scrubbed = scrubbed.replace(cue, " ")
+    pos = sum(1 for cue in POSITIVE_CUES if cue in scrubbed)
+    neg = sum(1 for cue in NEGATIVE_CUES if cue in scrubbed)
     if pos and not neg:
         return "positive"
     if neg and not pos:
         return "negative"
-    if pos >= neg + 2:
+    if pos > neg:
         return "positive"
-    if neg >= pos + 1:
+    if neg > pos:
         return "negative"
+    if null_hit and pos:
+        return "positive"
+    if null_hit:
+        return "no_difference"
     return "neutral"
 
 
 def build_evidence(subquestions, records):
-    rows = []
+    for record in records:
+        prepare_record(record)
+    candidates = []
     for sq in subquestions:
-        terms = key_terms(sq["question"], limit=14)
+        terms = sq.get("match_terms") or []
+        facet_terms = sq.get("facet_terms") or []
+        if not terms:
+            continue
         for record in records:
             score, hits = relevance(record, terms)
             if score <= 0:
                 continue
-            text = record["title"] + ". " + record["abstract"] + " " + record["body"]
-            rows.append({
-                "subquestion_id": sq["id"],
-                "source_id": record["source_id"],
-                "locator": record["locator"],
-                "relevance_score": score,
-                "support_level": "direct" if score >= 6 else ("partial" if score >= 3 else "weak"),
-                "matched_terms": [hit["term"] for hit in hits][:8],
-                "quote": quote_for(text, [hit["term"] for hit in hits]) or record["title"][:260],
-                "year": record["year"],
-                "polarity": polarity(text),
-            })
+            matched = {hit["term"] for hit in hits}
+            facet_ratio = 0.0
+            if facet_terms:
+                facet_ratio = len(matched & set(facet_terms)) / float(len(facet_terms))
+                if facet_ratio < 0.5:
+                    continue
+            candidates.append({"subquestion_id": sq["id"], "priority": sq["priority"],
+                               "coverage": len(matched) / float(len(terms)), "facet_ratio": facet_ratio,
+                               "score": score, "hits": hits, "record": record})
+    candidates.sort(key=lambda item: (-item["facet_ratio"], -item["coverage"], item["priority"],
+                                      -item["score"], item["subquestion_id"], item["record"]["source_id"]))
+    rows, used = [], set()
+    for candidate in candidates:
+        record = candidate["record"]
+        if record["source_id"] in used:
+            continue
+        used.add(record["source_id"])
+        score = candidate["score"]
+        matched = {hit["term"] for hit in candidate["hits"]}
+        if record["_quote_field"] == "title":
+            support = "partial"
+        elif record["_has_outcome"] and any(term in record["_quote"].lower() for term in matched):
+            support = "direct"
+        elif score >= 3:
+            support = "partial"
+        else:
+            support = "weak"
+        rows.append({
+            "subquestion_id": candidate["subquestion_id"],
+            "source_id": record["source_id"],
+            "locator": record["locator"],
+            "relevance_score": score,
+            "coverage_fraction": round(candidate["coverage"], 3),
+            "support_level": support,
+            "quote_field": record["_quote_field"],
+            "matched_terms": [hit["term"] for hit in candidate["hits"]][:8],
+            "quote": record["_quote"],
+            "year": record["year"],
+            "polarity": record["_polarity"],
+        })
     rows.sort(key=lambda row: (row["subquestion_id"], -row["relevance_score"], row["source_id"]))
     return rows
 
 
+def trim_quote(text, width=170):
+    text = norm_space(text)
+    if len(text) <= width:
+        return text
+    cut = text[:width]
+    space = cut.rfind(" ")
+    if space > width // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;") + "..."
+
+
+def describe_effect(rows):
+    quoted = [row for row in rows if row["quote_field"] != "title"]
+    if not quoted:
+        return None
+    positives = [row for row in quoted if row["polarity"] == "positive"]
+    others = [row for row in quoted if row["polarity"] in ("negative", "no_difference")]
+    if positives and others:
+        first, second = positives[0], others[0]
+        return '%s reports "%s", whereas %s reports "%s"' % (
+            first["source_id"], trim_quote(first["quote"]).rstrip(" .;"),
+            second["source_id"], trim_quote(second["quote"]).rstrip(" .;"))
+    lead = quoted[0]
+    return '%s reports "%s"' % (lead["source_id"], trim_quote(lead["quote"]).rstrip(" .;"))
+
+
 def build_synthesis(subquestions, rows, records):
-    by_id = {record["source_id"]: record for record in records}
     synthesis = []
     for sq in subquestions:
         selected = [row for row in rows if row["subquestion_id"] == sq["id"]][:4]
         if not selected:
-            statement = "No supplied record addresses sub-question %s; no conclusion is drawn." % sq["id"]
-            strength = "unsupported"
+            continue
+        ids = [row["source_id"] for row in selected]
+        polarities = [row["polarity"] for row in selected]
+        has_positive = "positive" in polarities
+        has_opposing = any(value in ("negative", "no_difference") for value in polarities)
+        if has_positive and has_opposing:
+            direction = "mixed"
+        elif has_positive:
+            direction = "favours"
+        elif "negative" in polarities:
+            direction = "against"
         else:
-            ids = [row["source_id"] for row in selected]
-            statement = "%d supplied record(s) address sub-question %s (%s); the statement below is limited to their quoted spans." % (
-                len(selected), sq["id"], ", ".join(ids))
-            strength = "supported" if len(selected) >= 2 and all(row["support_level"] != "weak" for row in selected[:2]) else "partial"
+            direction = "no_difference"
+        effect = describe_effect(selected)
+        if effect is None:
+            statement = ("Direction: %s. Cited sources: %s. Effect: only titles are available for these "
+                         "records, so no outcome sentence can be quoted." % (direction, ", ".join(ids)))
+            strength = "partial"
+        else:
+            statement = "Direction: %s. Cited sources: %s. Effect: %s." % (direction, ", ".join(ids), effect)
+            if len(selected) >= 2 and all(row["support_level"] == "direct" for row in selected):
+                strength = "supported"
+            else:
+                strength = "partial"
         synthesis.append({
             "subquestion_id": sq["id"],
+            "direction": direction,
             "statement": statement,
+            "effect_summary": effect or "no outcome sentence in the cited records",
             "strength": strength,
-            "cited_sources": [{"source_id": row["source_id"], "locator": row["locator"], "quote": row["quote"]} for row in selected],
+            "cited_sources": [{"source_id": row["source_id"], "locator": row["locator"],
+                               "quote": row["quote"], "quote_field": row["quote_field"]} for row in selected],
             "scope_limit": "only the supplied corpus; no external retrieval was performed",
         })
     return synthesis
 
 
-def build_conflicts(rows):
-    conflicts = []
-    grouped = {}
-    for row in rows:
-        grouped.setdefault(row["subquestion_id"], []).append(row)
-    for subquestion_id, group in grouped.items():
-        positive = [row for row in group if row["polarity"] == "positive"]
-        negative = [row for row in group if row["polarity"] == "negative"]
-        if positive and negative:
+def build_conflicts(rows, records):
+    row_by_source = {row["source_id"]: row for row in rows}
+    ordered = sorted(records, key=lambda record: record["source_id"])
+    conflicts, seen = [], set()
+    for index, first in enumerate(ordered):
+        for second in ordered[index + 1:]:
+            pair = {first["_polarity"], second["_polarity"]}
+            if "positive" not in pair or not (pair & {"negative", "no_difference"}):
+                continue
+            if first["_quote_field"] == "title" or second["_quote_field"] == "title":
+                continue
+            shared = sorted(set(key_terms(first["title"] + " " + first["abstract"] + " " + first["body"], limit=40)) &
+                            set(key_terms(second["title"] + " " + second["abstract"] + " " + second["body"], limit=40)))
+            if not shared:
+                continue
+            key = (first["source_id"], second["source_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            supporting = first if first["_polarity"] == "positive" else second
+            opposing = second if supporting is first else first
+            anchor = row_by_source.get(supporting["source_id"]) or row_by_source.get(opposing["source_id"])
             conflicts.append({
-                "subquestion_id": subquestion_id,
+                "subquestion_id": anchor["subquestion_id"] if anchor else "corpus",
                 "type": "opposing_direction",
-                "supporting": {"source_id": positive[0]["source_id"], "quote": positive[0]["quote"]},
-                "opposing": {"source_id": negative[0]["source_id"], "quote": negative[0]["quote"]},
+                "shared_terms": shared[:6],
+                "supporting": {"source_id": supporting["source_id"], "locator": supporting["locator"],
+                               "quote": supporting["_quote"]},
+                "opposing": {"source_id": opposing["source_id"], "locator": opposing["locator"],
+                             "quote": opposing["_quote"]},
                 "handling": "both directions are reported; neither is selected as correct",
             })
+            if len(conflicts) >= 12:
+                return conflicts
     return conflicts
 
 
 def build_gaps(subquestions, rows, records, window):
     gaps = []
     for sq in subquestions:
+        if sq["facet"] == "gap":
+            continue
         group = [row for row in rows if row["subquestion_id"] == sq["id"]]
         if not group:
             gaps.append({"subquestion_id": sq["id"], "type": "no_evidence", "basis": "no supplied record matched this sub-question",
@@ -442,14 +746,16 @@ def case_identifier(case):
 def build_payload(case, task_text):
     raw_records = find_records(case)
     records = [normalize_record(raw, locator, index) for index, (locator, raw) in enumerate(raw_records)]
-    question, window, object_terms, subquestions = build_question(case, task_text, records)
+    question, window, object_terms, subquestions, parsed = build_question(case, task_text, records)
     rows = build_evidence(subquestions, records)
     synthesis = build_synthesis(subquestions, rows, records)
-    conflicts = build_conflicts(rows)
+    conflicts = build_conflicts(rows, records)
     gaps = build_gaps(subquestions, rows, records, window)
     order, stages = order_plan(subquestions)
 
     covered = {row["source_id"] for row in rows}
+    outcome_ids = {record["source_id"] for record in records if record["_has_outcome"]}
+    covered_outcome = covered & outcome_ids
     uncertainty = []
     if not question:
         uncertainty.append({"type": "no_research_question", "detail": "No research question was found in case.json or task.md."})
@@ -487,13 +793,15 @@ def build_payload(case, task_text):
         "question_decomposition": {
             "facets_detected": sorted({sq["facet"] for sq in subquestions}),
             "object_terms": object_terms,
+            "parsed_question": parsed,
             "subquestions": subquestions,
-            "dependency_note": "Q1 is the retrieval anchor; Q2-Q5 depend on Q1; Q6 audits coverage of all earlier stages.",
+            "dependency_note": dependency_note_for(subquestions),
         },
         "retrieval_plan": {
             "order": order,
             "stages": stages,
-            "deduplication": "records are keyed by source_id; identical ids are screened once",
+            "deduplication": ("sub-questions whose search-term sets overlap by 75% or more are merged; each "
+                              "source_id is assigned to exactly one sub-question, so the evidence matrix lists it once"),
             "stop_conditions": {sq["id"]: sq["stop_condition"] for sq in subquestions},
             "external_search_note": "queries are ready to run externally; this run does not access the network",
         },
@@ -504,7 +812,10 @@ def build_payload(case, task_text):
         "coverage": {
             "records_supplied": len(records),
             "records_cited": len(covered),
-            "recall": round(len(covered) / len(records), 3) if records else 0.0,
+            "records_with_outcome_text": len(outcome_ids),
+            "recall": round(len(covered_outcome) / float(len(records)), 3) if records else 0.0,
+            "recall_basis": ("cited records carrying a quotable outcome sentence divided by all supplied records; "
+                             "title-only records are not counted as covered"),
             "year_range": [min([r["year"] for r in records if r["year"]] or [None]) if records else None,
                            max([r["year"] for r in records if r["year"]] or [None]) if records else None],
             "time_window": window,
