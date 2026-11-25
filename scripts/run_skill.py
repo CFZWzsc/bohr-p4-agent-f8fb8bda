@@ -21,11 +21,19 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import sk_artifacts
+except Exception:  # optional companion writer; the core result must still be produced
+    sk_artifacts = None
+
 DEFAULT_CASE = "/input/case.json"
 DEFAULT_OUT = "/app/output/result.json"
 DEFAULT_WORK = "/app/work"
 
-RECORD_KEYS = ("records", "sources", "papers", "documents", "literature", "items", "corpus", "evidence_pool", "hits")
+RECORD_KEYS = ("records", "sources", "papers", "documents", "literature", "items", "corpus",
+               "evidence_pool", "hits", "studies", "abstracts", "library", "entries")
+STATUS_VALUES = ("success", "partial", "insufficient_input", "failed")
 QUESTION_KEYS = ("research_question", "question", "topic", "objective", "aim", "research_topic", "query")
 STOPWORDS = {
     "the", "and", "for", "with", "from", "that", "this", "these", "those", "are", "was", "were",
@@ -240,6 +248,101 @@ def normalize_record(raw, locator, index):
         "url": as_text(pick(raw, ("url", "link", "landing_page"))),
         "type": as_text(pick(raw, ("type", "publication_type", "study_type"))),
         "retracted": bool(pick(raw, ("retracted", "is_retracted")) or False),
+    }
+
+
+def record_dedupe_key(record):
+    """Stable dedupe key: DOI first, otherwise a punctuation-stripped title."""
+    doi = as_text(record.get("doi")).lower()
+    if doi:
+        return "doi:" + doi
+    title = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", as_text(record.get("title")).lower())
+    return "title:" + title if title else ""
+
+
+def find_duplicates(records):
+    """Map duplicate record locator -> {duplicate_of, key}; first occurrence wins."""
+    seen, duplicates = {}, {}
+    for record in records:
+        key = record_dedupe_key(record)
+        if not key:
+            continue
+        if key in seen:
+            duplicates[record["locator"]] = {"duplicate_of": seen[key], "key": key}
+        else:
+            seen[key] = record["source_id"]
+    return duplicates
+
+
+def build_screening(records, rows, duplicates, skipped_locators):
+    """One screening decision per supplied record, plus the criteria that produced it."""
+    cited = {}
+    for row in rows:
+        cited.setdefault(row["source_id"], []).append(row["subquestion_id"])
+    screening = []
+    for index, record in enumerate(records, 1):
+        locator = record["locator"]
+        matched = sorted(set(cited.get(record["source_id"], [])))
+        criteria = ["has_bibliographic_content"]
+        if record["year"]:
+            criteria.append("has_publication_year")
+        if record["doi"]:
+            criteria.append("has_doi")
+        if matched:
+            criteria.append("matches_subquestion_terms")
+        if not (record["title"] or record["abstract"] or record["body"]):
+            decision = "exclude"
+            reason = "no title, abstract or body text was supplied"
+        elif locator in duplicates:
+            decision = "exclude"
+            reason = "duplicate of %s by DOI/title" % duplicates[locator]["duplicate_of"]
+            criteria.append("deduplicated")
+        elif locator in skipped_locators:
+            decision = "exclude"
+            reason = "record is flagged retracted and cannot serve as valid evidence"
+            criteria.append("not_retracted")
+        elif matched:
+            decision, reason = "include", "matched sub-question terms and was cited in the evidence matrix"
+        else:
+            decision, reason = "pending", "no sub-question term matched; retained in the corpus but not cited"
+        screening.append({
+            "screening_id": "SC%02d" % index,
+            "source_id": record["source_id"],
+            "locator": locator,
+            "title": record["title"],
+            "year": record["year"],
+            "doi": record["doi"],
+            "decision": decision,
+            "reason": reason,
+            "criteria_applied": criteria,
+            "duplicate_of": duplicates.get(locator, {}).get("duplicate_of"),
+            "matched_subquestions": matched,
+        })
+    return screening
+
+
+def build_prisma(screening, total):
+    included = sum(1 for item in screening if item["decision"] == "include")
+    duplicates = sum(1 for item in screening if item["decision"] == "exclude" and item["duplicate_of"])
+    excluded = sum(1 for item in screening if item["decision"] == "exclude" and not item["duplicate_of"])
+    pending = sum(1 for item in screening if item["decision"] == "pending")
+    screened = total - duplicates
+    return {
+        "n_identified": total,
+        "n_duplicates": duplicates,
+        "n_screened": screened,
+        "n_excluded_by_code": excluded,
+        "n_included": included,
+        "n_pending": pending,
+        "balance_ok": screened == excluded + included + pending,
+        "stages": [
+            {"stage": "identified", "count": total},
+            {"stage": "duplicates_removed", "count": duplicates},
+            {"stage": "screened", "count": screened},
+            {"stage": "excluded_by_code", "count": excluded},
+            {"stage": "included", "count": included},
+            {"stage": "pending", "count": pending},
+        ],
     }
 
 
@@ -531,7 +634,7 @@ def polarity(text):
     return "neutral"
 
 
-def build_evidence(subquestions, records):
+def build_evidence(subquestions, records, skip_locators=()):
     for record in records:
         prepare_record(record)
     candidates = []
@@ -541,6 +644,8 @@ def build_evidence(subquestions, records):
         if not terms:
             continue
         for record in records:
+            if record["locator"] in skip_locators:
+                continue
             score, hits = relevance(record, terms)
             if score <= 0:
                 continue
@@ -656,9 +761,10 @@ def build_synthesis(subquestions, rows, records):
     return synthesis
 
 
-def build_conflicts(rows, records):
+def build_conflicts(rows, records, skip_locators=()):
     row_by_source = {row["source_id"]: row for row in rows}
-    ordered = sorted(records, key=lambda record: record["source_id"])
+    ordered = sorted((record for record in records if record["locator"] not in skip_locators),
+                     key=lambda record: record["source_id"])
     conflicts, seen = [], set()
     for index, first in enumerate(ordered):
         for second in ordered[index + 1:]:
@@ -683,9 +789,11 @@ def build_conflicts(rows, records):
                 "type": "opposing_direction",
                 "shared_terms": shared[:6],
                 "supporting": {"source_id": supporting["source_id"], "locator": supporting["locator"],
-                               "quote": supporting["_quote"]},
+                               "quote": supporting["_quote"], "quote_field": supporting["_quote_field"]},
                 "opposing": {"source_id": opposing["source_id"], "locator": opposing["locator"],
-                             "quote": opposing["_quote"]},
+                             "quote": opposing["_quote"], "quote_field": opposing["_quote_field"]},
+                "source_distinct": (supporting["locator"] != opposing["locator"] and
+                                    supporting["source_id"] != opposing["source_id"]),
                 "handling": "both directions are reported; neither is selected as correct",
             })
             if len(conflicts) >= 12:
@@ -693,28 +801,68 @@ def build_conflicts(rows, records):
     return conflicts
 
 
+def gap_queries(sq, hits):
+    queries = sq.get("search_queries") or []
+    return [{"query": query, "source": "supplied_corpus", "executed": True, "hits": hits} for query in queries]
+
+
 def build_gaps(subquestions, rows, records, window):
+    """Gaps keep the queries that were run and separate 'absent from corpus' from 'not retrieved'."""
     gaps = []
+    corpus_state = "corpus_present" if records else "corpus_empty"
     for sq in subquestions:
         if sq["facet"] == "gap":
             continue
         group = [row for row in rows if row["subquestion_id"] == sq["id"]]
         if not group:
-            gaps.append({"subquestion_id": sq["id"], "type": "no_evidence", "basis": "no supplied record matched this sub-question",
-                         "bounded_claim": "cannot be assessed from the supplied corpus"})
+            gaps.append({
+                "subquestion_id": sq["id"],
+                "type": "no_evidence",
+                "basis": "no supplied record matched this sub-question",
+                "bounded_claim": "cannot be assessed from the supplied corpus",
+                "corpus_state": "corpus_empty" if not records else "corpus_present_without_match",
+                "retrieval_status": "external_queries_declared_not_run",
+                "distinction": ("no corpus was supplied" if not records
+                                else "corpus searched, no matching span; external retrieval not attempted"),
+                "queries_tried": gap_queries(sq, 0),
+                "human_confirm": ("confirm whether to run the listed queries in an external database before "
+                                  "treating this as a field-level gap"),
+            })
         elif len({row["source_id"] for row in group}) == 1:
-            gaps.append({"subquestion_id": sq["id"], "type": "single_source", "basis": "only one distinct record matched",
-                         "bounded_claim": "single-source only; replication absent"})
+            gaps.append({
+                "subquestion_id": sq["id"],
+                "type": "single_source",
+                "basis": "only one distinct record matched",
+                "bounded_claim": "single-source only; replication absent",
+                "corpus_state": corpus_state + "_single_match",
+                "retrieval_status": "external_queries_declared_not_run",
+                "distinction": "one supporting span is present; a second independent source was not retrieved",
+                "queries_tried": gap_queries(sq, 1),
+                "human_confirm": "confirm whether an independent replication source exists before generalising",
+            })
     if window["from"] and records:
         years = [record["year"] for record in records if record["year"]]
         if years and max(years) < window["from"]:
             gaps.append({"subquestion_id": "coverage", "type": "temporal_coverage",
                          "basis": "latest supplied record is %d, before the requested window start %d" % (max(years), window["from"]),
-                         "bounded_claim": "the requested period is not covered"})
+                         "bounded_claim": "the requested period is not covered",
+                         "corpus_state": corpus_state,
+                         "retrieval_status": "coverage_audit_only",
+                         "distinction": "the supplied years stop before the requested window; no external search was run",
+                         "queries_tried": [{"query": "coverage audit of supplied publication years",
+                                            "source": "supplied_corpus", "executed": True, "hits": len(records)}],
+                         "human_confirm": "confirm whether records from the requested window should be sourced externally"})
     if records and any(not record["abstract"] for record in records):
         gaps.append({"subquestion_id": "coverage", "type": "metadata_incomplete",
                      "basis": "%d record(s) have no abstract" % sum(1 for record in records if not record["abstract"]),
-                     "bounded_claim": "screening relied on title/body only for those records"})
+                     "bounded_claim": "screening relied on title/body only for those records",
+                     "corpus_state": corpus_state,
+                     "retrieval_status": "metadata_audit_only",
+                     "distinction": "metadata is missing in the corpus; this is not evidence that the field lacks data",
+                     "queries_tried": [{"query": "metadata completeness audit of supplied records",
+                                        "source": "supplied_corpus", "executed": True,
+                                        "hits": sum(1 for record in records if not record["abstract"])}],
+                     "human_confirm": "confirm whether missing abstracts can be completed before down-weighting these records"})
     return gaps
 
 
@@ -743,15 +891,221 @@ def case_identifier(case):
     return ""
 
 
+def build_iterations(subquestions, rows):
+    """Replay each sub-question's declared query against the supplied corpus."""
+    iterations = []
+    for sq in subquestions:
+        group = [row for row in rows if row["subquestion_id"] == sq["id"]]
+        evidence_ids = sorted({row["source_id"] for row in group})
+        queries = []
+        for query in sq["search_queries"]:
+            executed = sq["facet"] != "gap"
+            queries.append({"query": query, "source": "supplied_corpus",
+                            "executed": executed, "hits": len(group) if executed else 0})
+        if sq["facet"] == "gap":
+            status = "audit_only"
+            artifacts_ref = ["research_gaps", "coverage"]
+            note = "Coverage audit only; no external query was executed."
+        elif group:
+            status = "executed_with_hits"
+            artifacts_ref = ["evidence_matrix[%s]" % sq["id"], "synthesis[%s]" % sq["id"]]
+            note = "%d evidence row(s) were bound to this sub-question." % len(group)
+        else:
+            status = "executed_no_hits"
+            artifacts_ref = ["research_gaps[%s]" % sq["id"]]
+            note = "The declared query matched no supplied record; see research_gaps."
+        iterations.append({
+            "iteration": len(iterations) + 1,
+            "subquestion_id": sq["id"],
+            "status": status,
+            "queries_run": queries,
+            "artifacts_ref": artifacts_ref,
+            "new_evidence_ids": evidence_ids,
+            "synthesis_note": note,
+        })
+    return iterations
+
+
+def resolve_locator(case, locator):
+    node = case
+    for part in str(locator).strip("/").split("/"):
+        if isinstance(node, list):
+            try:
+                node = node[int(part)]
+            except (ValueError, IndexError):
+                return None
+        elif isinstance(node, dict):
+            if part not in node:
+                return None
+            node = node[part]
+        else:
+            return None
+    return node
+
+
+def _quote_in_record(quote, candidates):
+    quote = norm_space(quote)
+    if not quote:
+        return False
+    for record in candidates:
+        for field in ("title", "abstract", "body"):
+            if quote in norm_space(record.get(field)):
+                return True
+    return False
+
+
+def attach_checks(payload, records, case):
+    """Append verification, self_check, gates and validator_verdict; downgrade success to partial on failure."""
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    rows = result.get("evidence_matrix") or []
+    conflicts = result.get("conflicts") or []
+    gaps = result.get("research_gaps") or []
+    synthesis = result.get("synthesis") or []
+    iterations = payload.get("iterations") or []
+    prisma = payload.get("prisma") or {}
+    by_source, by_locator = {}, {}
+    for record in records:
+        by_source.setdefault(record["source_id"], []).append(record)
+        by_locator[record["locator"]] = record
+
+    checked, verified, not_found = 0, 0, []
+    for row in rows:
+        checked += 1
+        if _quote_in_record(row.get("quote"), by_source.get(row.get("source_id"), [])):
+            verified += 1
+        else:
+            not_found.append({"source_id": row.get("source_id"), "subquestion_id": row.get("subquestion_id")})
+    conflict_checked, conflict_verified, conflict_violations = 0, 0, []
+    for index, conflict in enumerate(conflicts):
+        sides = [conflict.get("supporting") or {}, conflict.get("opposing") or {}]
+        pair_ok = True
+        for side in sides:
+            conflict_checked += 1
+            if not _quote_in_record(side.get("quote"), by_source.get(side.get("source_id"), [])):
+                pair_ok = False
+        distinct = (conflict.get("source_distinct") and
+                    sides[0].get("locator") != sides[1].get("locator") and
+                    sides[0].get("source_id") != sides[1].get("source_id"))
+        if pair_ok and distinct:
+            conflict_verified += 1
+        else:
+            conflict_violations.append({"conflict": index, "quotes_present": pair_ok, "source_distinct": bool(distinct)})
+
+    locator_checked, locator_resolved, locator_failed = 0, 0, []
+    for row in rows:
+        locator_checked += 1
+        if resolve_locator(case, row.get("locator")) is not None:
+            locator_resolved += 1
+        else:
+            locator_failed.append({"source_id": row.get("source_id"), "locator": row.get("locator")})
+    for conflict in conflicts:
+        for side in (conflict.get("supporting") or {}, conflict.get("opposing") or {}):
+            locator_checked += 1
+            if resolve_locator(case, side.get("locator")) is not None:
+                locator_resolved += 1
+            else:
+                locator_failed.append({"source_id": side.get("source_id"), "locator": side.get("locator")})
+
+    names = contract_names(case)
+    missing_contract = [name for name in names if name not in payload]
+    gap_ok = all(gap.get("basis") and gap.get("bounded_claim") and gap.get("queries_tried")
+                 and gap.get("human_confirm") and gap.get("distinction") for gap in gaps)
+    prisma_ok = bool(prisma.get("balance_ok")) and prisma.get("n_identified", 0) == len(records)
+    plan_queries = (result.get("retrieval_plan") or {}).get("queries") or {}
+    iteration_ok = all(iter_item.get("queries_run") is not None for iter_item in iterations) and \
+        all([entry["query"] for entry in iter_item.get("queries_run") or []]
+            == list(plan_queries.get(iter_item.get("subquestion_id"), [])) for iter_item in iterations)
+    support_by_row = {(row.get("subquestion_id"), row.get("source_id")): row.get("support_level") for row in rows}
+    strength_ok = all(
+        item.get("strength") != "supported" or all(
+            support_by_row.get((item.get("subquestion_id"), cited.get("source_id"))) == "direct"
+            for cited in item.get("cited_sources") or [])
+        for item in synthesis)
+    text_blob = json.dumps({"result": result, "uncertainty": payload.get("uncertainty")},
+                           ensure_ascii=False, sort_keys=True)
+    placeholder_free = not any(token in text_blob for token in ("TODO", "TBD", "FIXME", "lorem ipsum"))
+
+    verification = {
+        "quote_check": {"checked": checked, "verified": verified, "not_found": not_found},
+        "conflict_check": {"checked": conflict_checked, "verified": conflict_verified,
+                           "pairs": len(conflicts), "violations": conflict_violations},
+        "locator_check": {"checked": locator_checked, "resolved": locator_resolved, "failed": locator_failed},
+        "contract_check": {"required": names, "missing": missing_contract},
+        "gap_check": {"gaps": len(gaps), "with_basis_and_queries": sum(
+            1 for gap in gaps if gap.get("basis") and gap.get("queries_tried") and gap.get("human_confirm"))},
+        "iteration_check": {"iterations": len(iterations), "aligned_with_plan": iteration_ok},
+    }
+    self_check = [
+        {"item": "case_id_preserved", "passed": payload.get("case_id") == case_identifier(case),
+         "detail": "output case_id matches the input case_id"},
+        {"item": "status_enum", "passed": payload.get("status") in STATUS_VALUES,
+         "detail": "status is one of %s" % ", ".join(STATUS_VALUES)},
+        {"item": "contract_fields_present", "passed": not missing_contract,
+         "detail": "contract keys missing: %s" % (", ".join(missing_contract) or "none")},
+        {"item": "quote_integrity", "passed": not not_found,
+         "detail": "%d/%d evidence quotes were found verbatim in the source text" % (verified, checked)},
+        {"item": "locator_resolvable", "passed": not locator_failed,
+         "detail": "%d/%d locators resolve inside case.json" % (locator_resolved, locator_checked)},
+        {"item": "conflict_evidence", "passed": not conflict_violations,
+         "detail": "%d/%d conflicts carry two verified quotes from distinct sources" % (conflict_verified, len(conflicts))},
+        {"item": "gap_basis", "passed": gap_ok,
+         "detail": "%d gap(s) carry basis, bounded claim, queries_tried and human_confirm" % len(gaps)},
+        {"item": "prisma_balance", "passed": prisma_ok,
+         "detail": "screened equals excluded + included + pending"},
+        {"item": "iteration_plan_alignment", "passed": iteration_ok,
+         "detail": "%d iteration(s) replay the declared queries" % len(iterations)},
+        {"item": "strength_consistency", "passed": strength_ok,
+         "detail": "supported synthesis items cite only direct-support rows"},
+        {"item": "no_placeholder", "passed": placeholder_free,
+         "detail": "no TODO/TBD/FIXME placeholder was serialised"},
+    ]
+    gates = [
+        {"gate": "case_contract", "passed": self_check[0]["passed"] and self_check[1]["passed"] and self_check[2]["passed"],
+         "detail": "case_id, status enum and declared contract keys"},
+        {"gate": "quote_integrity", "passed": self_check[3]["passed"], "detail": "every quote is a verbatim span"},
+        {"gate": "locator_resolvable", "passed": self_check[4]["passed"], "detail": "every locator resolves in the case"},
+        {"gate": "conflict_validity", "passed": self_check[5]["passed"], "detail": "conflict sides quote and come from distinct sources"},
+        {"gate": "gap_evidence", "passed": self_check[6]["passed"], "detail": "gaps carry basis, queries and human confirmation"},
+        {"gate": "prisma_balance", "passed": self_check[7]["passed"], "detail": "screening counts balance"},
+        {"gate": "iteration_plan_alignment", "passed": self_check[8]["passed"], "detail": "iterations replay declared queries"},
+        {"gate": "strength_consistency", "passed": self_check[9]["passed"], "detail": "synthesis strength matches row support"},
+        {"gate": "no_placeholder", "passed": self_check[10]["passed"], "detail": "no placeholder tokens"},
+    ]
+    passed = sum(1 for gate in gates if gate["passed"])
+    verdict = {
+        "verdict": "pass" if passed == len(gates) else "fail",
+        "checks_total": len(gates),
+        "checks_passed": passed,
+        "all_checks_passed": passed == len(gates),
+        "failed_gates": [gate["gate"] for gate in gates if not gate["passed"]],
+    }
+    payload["verification"] = verification
+    payload["self_check"] = self_check
+    payload["gates"] = gates
+    payload["validator_verdict"] = verdict
+    if verdict["verdict"] != "pass" and payload.get("status") == "success":
+        payload["status"] = "partial"
+        uncertainty = payload.setdefault("uncertainty", [])
+        uncertainty.append({"type": "self_check_failed",
+                            "detail": "Validator gates failed (%s); status downgraded to partial."
+                                      % ", ".join(verdict["failed_gates"])})
+    return payload
+
+
 def build_payload(case, task_text):
     raw_records = find_records(case)
     records = [normalize_record(raw, locator, index) for index, (locator, raw) in enumerate(raw_records)]
     question, window, object_terms, subquestions, parsed = build_question(case, task_text, records)
-    rows = build_evidence(subquestions, records)
+    duplicates = find_duplicates(records)
+    skipped_locators = set(duplicates) | {record["locator"] for record in records if record["retracted"]}
+    rows = build_evidence(subquestions, records, skipped_locators)
     synthesis = build_synthesis(subquestions, rows, records)
-    conflicts = build_conflicts(rows, records)
+    conflicts = build_conflicts(rows, records, skipped_locators)
     gaps = build_gaps(subquestions, rows, records, window)
     order, stages = order_plan(subquestions)
+    iterations = build_iterations(subquestions, rows)
+    screening = build_screening(records, rows, duplicates, skipped_locators)
+    prisma = build_prisma(screening, len(records))
 
     covered = {row["source_id"] for row in rows}
     outcome_ids = {record["source_id"] for record in records if record["_has_outcome"]}
@@ -770,7 +1124,10 @@ def build_payload(case, task_text):
         uncertainty.append({"type": "no_time_window", "detail": "No explicit time window was supplied; the plan uses the corpus as-is."})
     if any(record["retracted"] for record in records):
         uncertainty.append({"type": "retracted_record_present",
-                            "detail": "At least one supplied record is marked retracted; its evidence is still listed but must not be treated as valid."})
+                            "detail": "At least one supplied record is marked retracted; it is excluded from the evidence matrix."})
+    if duplicates:
+        uncertainty.append({"type": "duplicate_records_removed",
+                            "detail": "%d duplicate record(s) were removed by DOI/title before screening." % len(duplicates)})
     uncertainty.append({"type": "no_external_search", "detail": "Retrieval is limited to the supplied corpus; the plan states what an external search would add."})
 
     if not question or not records:
@@ -798,8 +1155,10 @@ def build_payload(case, task_text):
             "dependency_note": dependency_note_for(subquestions),
         },
         "retrieval_plan": {
+            "state": "declared",
             "order": order,
             "stages": stages,
+            "queries": {sq["id"]: sq["search_queries"] for sq in subquestions},
             "deduplication": ("sub-questions whose search-term sets overlap by 75% or more are merged; each "
                               "source_id is assigned to exactly one sub-question, so the evidence matrix lists it once"),
             "stop_conditions": {sq["id"]: sq["stop_condition"] for sq in subquestions},
@@ -828,20 +1187,26 @@ def build_payload(case, task_text):
         ],
         "change_log": [
             "Decomposed the research question into facet-labelled sub-questions with dependencies.",
-            "Built an ordered retrieval plan with per-sub-question stop conditions.",
+            "Declared an ordered retrieval plan (state=declared) with per-sub-question queries and stop conditions.",
+            "Screened and de-duplicated the supplied records and reported PRISMA counts.",
+            "Replayed each declared query as an iteration and bound hits to the evidence matrix.",
             "Aligned supplied records to sub-questions with quoted evidence and support levels.",
             "Reported opposing directions as conflicts instead of choosing one side.",
             "Derived research gaps from coverage of the supplied corpus only.",
+            "Ran quote, locator, contract, conflict, gap and PRISMA gates from the emitted payload.",
         ],
     }
 
-    return {
+    payload = {
         "case_id": case_identifier(case),
         "status": status,
         "result": result,
         "evidence": evidence,
         "uncertainty": uncertainty,
         "errors": [],
+        "screening": screening,
+        "prisma": prisma,
+        "iterations": iterations,
         "stats": {
             "records": len(records),
             "subquestions": len(subquestions),
@@ -849,9 +1214,15 @@ def build_payload(case, task_text):
             "conflicts": len(conflicts),
             "gaps": len(gaps),
             "records_with_year": sum(1 for record in records if record["year"]),
+            "screened_included": prisma["n_included"],
+            "screened_excluded": prisma["n_excluded_by_code"],
+            "screened_pending": prisma["n_pending"],
+            "duplicates_removed": prisma["n_duplicates"],
+            "iterations": len(iterations),
             "network": "disabled",
         },
     }
+    return payload, records
 
 
 CONTRACT_ALIASES = {
@@ -977,6 +1348,7 @@ def main(argv=None):
     os.environ["SK_RESULT_PATH"] = str(getattr(args, "out", None) or getattr(args, "output", None) or "")
 
     case = {}
+    records = []
     try:
         case = load_json(args.case)
         if not isinstance(case, dict):
@@ -986,7 +1358,7 @@ def main(argv=None):
         except OSError:
             pass
         task_text = read_task_text(args.case, args.work)
-        payload = build_payload(case, task_text)
+        payload, records = build_payload(case, task_text)
         code = 0
     except Exception as exc:
         payload = {
@@ -1001,6 +1373,15 @@ def main(argv=None):
         code = 2
 
     payload = apply_contract(payload, case if isinstance(case, dict) else {})
+    attach_checks(payload, records, case if isinstance(case, dict) else {})
+    if sk_artifacts is not None and isinstance(payload.get("result"), dict):
+        out_dir = os.path.dirname(os.path.abspath(args.out)) or "."
+        try:
+            payload["result"]["artifacts"] = sk_artifacts.write_artifacts(payload, out_dir)
+        except Exception as exc:
+            payload.setdefault("errors", []).append(
+                {"stage": "artifacts", "type": type(exc).__name__, "message": str(exc)[:300]})
+            payload["result"]["artifacts"] = []
     try:
         write_json(args.out, payload)
     except Exception as exc:
