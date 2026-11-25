@@ -25,9 +25,9 @@ description: Use when a task requires decomposing a research question into indep
 
 1. **问题拆解**（任务完成度）：从问题与范围文本中识别对象、机制、方法、比较、结果、时间六类切面；每个切面生成一个可独立检索的子问题，写明 `facet`、`depends_on`、检索式、来源范围与停止条件。未识别的切面不强行生成。
 2. **检索规划**（可核验性）：按依赖关系做拓扑排序，输出执行顺序与并行阶段；每个子问题带可执行检索式与停止条件，声明本次不访问网络。
-3. **证据回链**（正确性）：对每个「子问题 × 记录」按标题 3 分、摘要 2 分、正文 1 分打分，保留命中的词项、原文引句与定位串；得分 0 的组合不进入证据矩阵。
-4. **证据综合**（完整性）：每条综合句只陈述「N 条提供记录支持」并附引句，强度分为 `supported`/`partial`/`unsupported`；无证据时明确写「无法评估」，不生成领域结论。
-5. **冲突证据**（正确性）：在同一子问题内用方向线索词判定 `positive`/`negative`，两侧同时出现时并列两条引句，不选边。
+3. **证据回链**（正确性）：对每个「子问题 × 记录」按标题 3 分、摘要 2 分、正文 1 分打分，保留命中的词项与定位串；引句从摘要/正文中抽取含结局或效应线索（significant、reduced、improved、no difference、HbA1c、risk、effect、association、compared 等）的完整句子；抽不到时退回标题，并把 `support_level` 记为 `partial`。每个 `source_id` 只归入一个子问题，证据矩阵不重复列出同一文献。
+4. **证据综合**（完整性）：每条综合句写明方向（`favours`/`against`/`no_difference`/`mixed`）、被引文献 id 与一句效应描述（引文原句）；强度分为 `supported`/`partial`/`unsupported`，标题兜底的记录不得计为 `supported`。无任何证据的子问题不写空话，改由 `research_gaps` 的 `no_evidence` 记录。
+5. **冲突证据**（正确性）：对提供文献两两比较方向（positive 对 negative/no_difference）并共享主题词时成对报告，双方各带原句 `quote` 与 `locator`，同一对文献只出现一次，不选边。
 6. **研究空白**（完整性）：只依据提供文献池的覆盖情况判定 `no_evidence`、`single_source`、`temporal_coverage`、`metadata_incomplete`，并写明判定依据；不把「没检索到」写成领域空白。
 
 ## 输出契约
@@ -117,9 +117,9 @@ python /skills/weekly-skill/scripts/run_skill.py \
 
 调用顺序（固定）：
 
-1. 先运行包内脚本（若存在）：`python scripts/run_skill.py`（默认读 `/input/case.json`，写 `/app/output/result.json`）；路径不同时用 `--case` / `--out` 指定。
-2. 再完成脚本无法自动完成的实质工作（译文、论述、图表、修订、结论等），把结果写回 `result.json` 对应字段。
-3. 最后自检：`case_id` 与输入一致；`output_contract` 每个字段都存在；`status` 为 `completed`（仅在确实缺输入时为 `partial`）；无 `pending` 占位；数字、引用、来源可逐条回溯。
+1. 运行包内脚本：`python scripts/run_skill.py`（默认读 `/input/case.json`，写 `/app/output/result.json`）；路径不同时用 `--case` / `--out` 指定。
+2. 脚本单次运行即产出完整成品（研究问题拆解、证据矩阵、冲突、综合、空白），不再分阶段执行。
+3. 最后自检：`case_id` 与输入一致；`output_contract` 每个字段都存在；`status` 取 `success` / `partial` / `insufficient_input` / `failed` 之一；无 `pending` 占位；数字、引用、来源可逐条回溯。
 
 运行保证：
 
@@ -137,7 +137,7 @@ python /skills/weekly-skill/scripts/run_skill.py \
 
 ## 最终交付强制要求
 
-1. **调用 Agent 必须交付成品，不是流程说明**：脚本产出只是索引、核对或规格骨架；调用 Agent 必须在同一 `result.json` 中补齐本题要求的最终产物（正文/译文/审稿意见/综述/分析结论/图表源文件与导出件/幻灯片页内容与讲稿/实验方案等）。交付字段为空、只有标题骨架，或含 `pending`、`TODO` 之类占位，一律视为未完成。
+1. **单次运行必须交付成品，不是流程说明**：同一份 `result.json` 必须含本题要求的最终产物（子问题拆解、证据矩阵、冲突、综合结论、研究空白）；交付字段为空、只有标题骨架，或含 `pending`、`TODO` 之类占位，一律视为未完成。
 2. **必须覆盖全部输入条目**：输入中的每个章节、问题、文献、图、页面、指标都要有对应条目，不得只处理示例或首条；确实缺失的条目写入 `uncertainty` / `limitations` 并说明原因，不得静默跳过。
 3. **必须自检后再交付**：`case_id` 与输入一致；`output_contract` 每个字段都存在；状态值取本题契约规定的枚举；数字、单位、引用、来源可逐条回溯；结果内部无自相矛盾。
 4. **参数等价**：`python scripts/run_skill.py --case <输入> --out <输出>` 与 `--output <输出>` 等价；默认 `/input/case.json` → `/app/output/result.json`。
