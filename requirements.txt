@@ -1,0 +1,9 @@
+# 依赖声明
+
+本 Skill 仅依赖 Python 标准库，无第三方包。
+
+- 运行时：Python 3.10 或更高版本。
+- 标准库模块：`argparse`、`json`、`os`、`re`、`sys`、`tempfile`、`unicodedata`、`pathlib`、`hashlib`、`csv`、`io`。
+- 不访问网络；不读写数据库；不依赖系统外部命令。
+
+安装步骤：无需 `pip install`，克隆仓库后直接运行 `python -B scripts/run_skill.py`。
