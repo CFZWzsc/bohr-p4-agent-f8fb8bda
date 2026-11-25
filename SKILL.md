@@ -48,6 +48,26 @@ description: Use when a task requires decomposing a research question into indep
 
 输入 `output_contract` 的每个字段名都会出现在顶层；无法产出时写 `null` 并在 `contract_notes` 说明。
 
+自检与检索留痕字段：`screening[]`（逐条 `include`/`exclude`/`pending`）、`prisma`（去重与筛选计数）、`iterations[]`（每步子问题的 `queries_run`/`new_evidence_ids`）、`verification`、`self_check[]`、`gates[]`、`validator_verdict`；门禁失败时 `status` 由 `success` 降为 `partial`。
+
+同一 `--out` 目录还会写出 6 个配套产物：`research_report.md`、`synthesis_matrix.csv`、`screening_log.csv`、`prisma_flow.svg`、`provenance.json`、`validation.json`；每个文件经 `os.path.exists` 自检后登记在 `result.artifacts`。
+
+## 文件清单
+
+| 路径 | 说明 |
+|---|---|
+| `scripts/run_skill.py` | 主入口：拆解、声明计划、筛选、证据回链、综合、自检 |
+| `scripts/sk_artifacts.py` | 配套产物写入器（6 个文件） |
+| `README.md` | 用途、输入输出契约、产物、限制、文件清单 |
+| `requirements.txt` | 依赖声明（仅标准库） |
+| `rules/rules_deep_research.md` | 可复用的深度研究规则 |
+| `docs/WORKFLOW.md` | 8 步协议与代码映射 |
+| `docs/ERROR_HANDLING.md` | 异常识别与处置 |
+| `worklog.md` | 改动与验证记录 |
+| `examples/demo-case/case.json` | 合成、自包含的演示输入 |
+| `examples/example-result.json` | 用 demo 输入实际运行得到的 `result.json`（已标注 demo） |
+| `GITHUB_URL.txt` | 仓库地址 |
+
 `status`：无研究问题或无记录 → `insufficient_input`；记录少于 2 条或无任何证据行 → `partial`；问题与语料齐备并产出证据矩阵 → `success`；解析失败 → `failed`。
 
 ## 异常处理
